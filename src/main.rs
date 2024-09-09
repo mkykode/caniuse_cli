@@ -145,8 +145,7 @@ async fn main() -> Result<()> {
                     BrowserSupport::Object(obj) => {
                         obj.get("version_added")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string()
+                            .map_or_else(|| "false".to_string(), |v| v.to_string())
                     },
                 };
 
