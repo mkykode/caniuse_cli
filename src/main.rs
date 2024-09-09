@@ -89,7 +89,14 @@ fn get_support_and_notes(support_info: &BrowserSupport, notes_by_num: &Option<Ha
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    (version_str.to_string(), Some(notes))
+
+                    let support_str = if version_str.contains("#") {
+                        format!("{} (see notes)", version_str)
+                    } else {
+                        version_str.to_string()
+                    };
+
+                    (support_str, Some(notes))
                 } else {
                     (version_added.to_string(), None)
                 }
@@ -142,7 +149,7 @@ async fn main() -> Result<()> {
                     BrowserSupport::Object(obj) => {
                         obj.get("version_added")
                             .and_then(|v| v.as_str())
-                            .map_or_else(|| "false".to_string(), |v| v.to_string())
+                            .map_or_else(|| "false".to_string(), |v| if v.contains("#") { format!("{} (see notes)", v) } else { v.to_string() })
                     },
                 };
 
@@ -167,17 +174,7 @@ async fn main() -> Result<()> {
                 let support_value = versions.get(&latest_version).unwrap_or(&String::new()).clone();
                 let (emoji, notes) = match support_value.split_whitespace().next() {
                     Some("a") | Some("partial") => {
-                        let notes = support_value
-                            .split_whitespace()
-                            .filter_map(|part| {
-                                if part.starts_with('#') {
-                                    feature.notes_by_num.as_ref().and_then(|notes| notes.get(&part[1..]).map(|note| format!("#{}: {}", &part[1..], note)))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join("; ");
+                        let notes = "see notes".to_string();
                         ("🟨", notes)
                     }
                     Some("y") | Some("true") => ("✅", String::new()),
@@ -187,7 +184,7 @@ async fn main() -> Result<()> {
 
                 support_data.push(BrowserSupportRow {
                     browser: format!("{} {}", emoji, browser),
-                    support: support_value.to_string(),
+                    support: if support_value.contains("#") { format!("{} (see notes)", support_value) } else { support_value },
                     notes,
                 });
             }
@@ -201,8 +198,8 @@ async fn main() -> Result<()> {
         }
 
         println!("\n  {} {}", "ℹ️ ".bold(), "Extra information:".bold());
-        for (key, value) in &feature.extra {
-            println!("    • {}: {}", key.bold(), value);
+        for (index, (key, value)) in feature.extra.iter().enumerate() {
+            println!("    {}. {}: {}", index + 1, key.bold(), value);
         }
         println!();
     }
