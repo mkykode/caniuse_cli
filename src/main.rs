@@ -7,6 +7,9 @@ use structopt::StructOpt;
 use url::Url;
 use log::{info, error, debug};
 use std::collections::HashMap;
+use colored::*;
+use tabled::{Table, Tabled};
+
 
 #[derive(StructOpt)]
 struct Cli {
@@ -17,6 +20,12 @@ struct Cli {
 struct FeatureResponse {
     #[serde(rename = "featureIds")]
     feature_ids: Vec<String>,
+}
+
+#[derive(Tabled)]
+struct BrowserSupportRow {
+    browser: String,
+    support: String,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -59,43 +68,50 @@ async fn main() -> Result<()> {
     let args = Cli::from_args();
     let client = Client::new();
 
-    println!("Search term: {}", args.search_term);
+    println!("{}", "Search term:".bold().green());
+    println!("{}", args.search_term.yellow());
 
     let feature_ids = get_feature_ids(&client, &args.search_term).await?;
-    println!("Selected feature IDs: {:?}", feature_ids);
+    println!("\n{}", "Selected feature IDs:".bold().green());
+    for id in &feature_ids {
+        println!("{}", id.yellow());
+    }
 
     let feature_data = get_feature_data(&client, &feature_ids).await?;
 
-    println!("Feature data:");
+    println!("\n{}", "Feature data:".bold().green());
     for (index, feature) in feature_data.iter().enumerate() {
-        println!("Feature {}:", index + 1);
-        println!("  Title: {}", feature.title);
-        println!("  Description: {}", feature.description);
-        println!("  Spec: {}", feature.spec);
-        println!("  MDN URL: {}", feature.mdn_url);
-        println!("  Support:");
+        println!("\n{}", format!("Feature {}:", index + 1).bold().blue());
+        println!("  {}: {}", "Title".bold(), feature.title);
+        println!("  {}: {}", "Description".bold(), feature.description);
+        println!("  {}: {}", "Spec".bold(), feature.spec);
+        println!("  {}: {}", "MDN URL".bold(), feature.mdn_url);
+
+        println!("\n  {}", "Support:".bold());
+        let mut support_data = Vec::new();
         for (browser, support) in &feature.support {
-            match support {
-                BrowserSupport::Bool(b) => println!("    {}: {}", browser, b),
-                BrowserSupport::String(s) => println!("    {}: {}", browser, s),
-                BrowserSupport::Object(obj) => {
-                    println!("    {}:", browser);
-                    for (key, value) in obj {
-                        println!("      {}: {}", key, value);
-                    }
-                }
-            }
+            let support_str = match support {
+                BrowserSupport::Bool(b) => b.to_string(),
+                BrowserSupport::String(s) => s.clone(),
+                BrowserSupport::Object(obj) => serde_json::to_string(obj).unwrap_or_default(),
+            };
+            support_data.push(BrowserSupportRow {
+                browser: browser.clone(),
+                support: support_str,
+            });
         }
-        println!("  Extra information:");
+        let table = Table::new(support_data).to_string();
+        println!("{}", table);
+
+        println!("\n  {}", "Extra information:".bold());
         for (key, value) in &feature.extra {
-            println!("    {}: {}", key, value);
+            println!("    {}: {}", key.bold(), value);
         }
         println!();
     }
 
     Ok(())
 }
-
 
 async fn get_feature_ids(client: &Client, search_term: &str) -> Result<Vec<String>> {
     info!("Searching for feature IDs for term: '{}'", search_term);
