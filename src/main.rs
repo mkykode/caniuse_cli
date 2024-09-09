@@ -45,6 +45,8 @@ struct FeatureData {
     support: Option<HashMap<String, BrowserSupport>>,
     #[serde(default)]
     stats: Option<HashMap<String, HashMap<String, String>>>,
+    #[serde(default)]
+    notes_by_num: Option<HashMap<String, String>>, // New field
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
@@ -53,16 +55,57 @@ struct FeatureData {
 struct BrowserSupportRow {
     browser: String,
     support: String,
+    notes: String,
 }
 
-fn get_support_emoji(support: &str) -> &str {
-    match support.to_lowercase().as_str() {
-        "y" | "true" => "✅",
-        "n" | "false" => "❌",
-        "a" | "partial" => "🟨",
-        _ if !support.is_empty() => "✅", // Assume support if there's a version number
-        _ => "❓",
+fn get_support_emoji(support_value: &str) -> &str {
+    match support_value {
+        "false" => "❌",
+        s if s.parse::<f32>().is_ok() => "✅",
+        _ => match support_value.to_lowercase().as_str() {
+            "y" | "true" => "✅",
+            "n" | "false" => "❌",
+            "a" | "partial" => "🟨",
+            _ => "❓",
+        },
     }
+}
+
+fn get_support_and_notes(support_info: &BrowserSupport, notes_by_num: &Option<HashMap<String, String>>) -> (String, String) {
+    let (support_value_str, notes) = match support_info {
+        BrowserSupport::Bool(b) => (b.to_string(), None),
+        BrowserSupport::String(s) => (s.clone(), None),
+        BrowserSupport::Object(obj) => {
+            if let Some(version_added) = obj.get("version_added") {
+                if let Some(version_str) = version_added.as_str() {
+                    if version_str.contains('#') {
+                        let notes = version_str
+                            .split('#')
+                            .skip(1)
+                            .filter_map(|num| {
+                                notes_by_num
+                                    .as_ref()
+                                    .and_then(|notes| notes.get(num).map(|note| format!("#{}: {}", num, note)))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        (version_str.to_string(), Some(notes))
+                    } else {
+                        (version_str.to_string(), None)
+                    }
+                } else {
+                    (version_added.to_string(), None)
+                }
+            } else {
+                ("unknown".to_string(), None)
+            }
+        }
+    };
+
+    let emoji = get_support_emoji(&support_value_str);
+    let notes = notes.unwrap_or_else(|| String::new());
+
+    (emoji.to_string(), notes)
 }
 
 #[tokio::main]
@@ -95,32 +138,42 @@ async fn main() -> Result<()> {
 
         if let Some(support) = &feature.support {
             for (browser, support_info) in support {
+                let (emoji, notes) = get_support_and_notes(support_info, &feature.notes_by_num);
                 let support_str = match support_info {
                     BrowserSupport::Bool(b) => b.to_string(),
                     BrowserSupport::String(s) => s.clone(),
                     BrowserSupport::Object(obj) => {
-                        let version_added = obj.get("version_added")
-                            .and_then(|v| v.as_str().or_else(|| v.as_bool().map(|b| if b { "true" } else { "false" })))
-                            .unwrap_or("unknown");
-                        format!("version_added: {}", version_added)
+                        obj.get("version_added")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string()
                     },
                 };
-                let emoji = get_support_emoji(&support_str);
+
                 support_data.push(BrowserSupportRow {
                     browser: format!("{} {}", emoji, browser),
                     support: support_str,
+                    notes,
                 });
             }
         } else if let Some(stats) = &feature.stats {
             for (browser, versions) in stats {
-                let latest_version = versions.keys().max_by(|a, b| {
-                    a.parse::<f32>().unwrap_or(0.0).partial_cmp(&b.parse::<f32>().unwrap_or(0.0)).unwrap()
-                }).unwrap_or(&String::new()).clone();
+                let latest_version = versions
+                    .keys()
+                    .max_by(|a, b| {
+                        a.parse::<f32>()
+                            .unwrap_or(0.0)
+                            .partial_cmp(&b.parse::<f32>().unwrap_or(0.0))
+                            .unwrap()
+                    })
+                    .unwrap_or(&String::new())
+                    .clone();
                 let support_value = versions.get(&latest_version).unwrap_or(&String::new()).clone();
-                let emoji = get_support_emoji(&support_value);
+                let (emoji, notes) = get_support_and_notes(&BrowserSupport::String(support_value.clone()), &feature.notes_by_num);
                 support_data.push(BrowserSupportRow {
                     browser: format!("{} {}", emoji, browser),
                     support: format!("{}: {}", latest_version, support_value),
+                    notes,
                 });
             }
         }
