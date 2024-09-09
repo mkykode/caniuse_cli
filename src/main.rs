@@ -78,21 +78,18 @@ fn get_support_and_notes(support_info: &BrowserSupport, notes_by_num: &Option<Ha
         BrowserSupport::Object(obj) => {
             if let Some(version_added) = obj.get("version_added") {
                 if let Some(version_str) = version_added.as_str() {
-                    if version_str.contains('#') {
-                        let notes = version_str
-                            .split('#')
-                            .skip(1)
-                            .filter_map(|num| {
-                                notes_by_num
-                                    .as_ref()
-                                    .and_then(|notes| notes.get(num).map(|note| format!("#{}: {}", num, note)))
-                            })
-                            .collect::<Vec<_>>()
-                            .join("; ");
-                        (version_str.to_string(), Some(notes))
-                    } else {
-                        (version_str.to_string(), None)
-                    }
+                    let notes = version_str
+                        .split_whitespace()
+                        .filter(|part| part.starts_with('#'))
+                        .filter_map(|note_ref| {
+                            let num = &note_ref[1..];
+                            notes_by_num
+                                .as_ref()
+                                .and_then(|notes| notes.get(num).map(|note| format!("#{}: {}", num, note)))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (version_str.to_string(), Some(notes))
                 } else {
                     (version_added.to_string(), None)
                 }
@@ -168,10 +165,29 @@ async fn main() -> Result<()> {
                     .unwrap_or(&String::new())
                     .clone();
                 let support_value = versions.get(&latest_version).unwrap_or(&String::new()).clone();
-                let (emoji, notes) = get_support_and_notes(&BrowserSupport::String(support_value.clone()), &feature.notes_by_num);
+                let (emoji, notes) = match support_value.split_whitespace().next() {
+                    Some("a") | Some("partial") => {
+                        let notes = support_value
+                            .split_whitespace()
+                            .filter_map(|part| {
+                                if part.starts_with('#') {
+                                    feature.notes_by_num.as_ref().and_then(|notes| notes.get(&part[1..]).map(|note| format!("#{}: {}", &part[1..], note)))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        ("🟨", notes)
+                    }
+                    Some("y") | Some("true") => ("✅", String::new()),
+                    Some("n") | Some("false") => ("❌", String::new()),
+                    _ => (get_support_emoji(&support_value), String::new())
+                };
+
                 support_data.push(BrowserSupportRow {
                     browser: format!("{} {}", emoji, browser),
-                    support: format!("{}: {}", latest_version, support_value),
+                    support: support_value.to_string(),
                     notes,
                 });
             }
