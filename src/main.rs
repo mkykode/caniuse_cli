@@ -1,14 +1,15 @@
+
 use anyhow::{Context, Result};
 use env_logger::Env;
+use log::{debug, error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use structopt::StructOpt;
-use url::Url;
-use log::{info, error, debug};
 use std::collections::HashMap;
-use colored::*;
+use structopt::StructOpt;
 use tabled::{Table, Tabled};
+use url::Url;
+use colored::*;
 
 #[derive(StructOpt)]
 struct Cli {
@@ -46,7 +47,7 @@ struct FeatureData {
     #[serde(default)]
     stats: Option<HashMap<String, HashMap<String, String>>>,
     #[serde(default)]
-    notes_by_num: Option<HashMap<String, String>>, // New field
+    notes_by_num: Option<HashMap<String, String>>,
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
@@ -197,9 +198,20 @@ async fn main() -> Result<()> {
             println!("  No compatibility data available.");
         }
 
+        // Print notes_by_num if available
+        if let Some(notes) = &feature.notes_by_num {
+            println!("\n  {} {}", "📓".bold(), "Notes:".bold());
+            for (num, note) in notes {
+                println!("    Note {}: {}", num, note);
+            }
+        }
+
+        // Print other extra information
         println!("\n  {} {}", "ℹ️ ".bold(), "Extra information:".bold());
-        for (index, (key, value)) in feature.extra.iter().enumerate() {
-            println!("    {}. {}: {}", index + 1, key.bold(), value);
+        for (key, value) in &feature.extra {
+            if key != "notes_by_num" && key != "support" && key != "stats" {
+                println!("    {}: {}", key.bold(), value);
+            }
         }
         println!();
     }
